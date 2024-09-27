@@ -1,0 +1,218 @@
+import pygame
+import random
+
+# 初始化 Pygame
+pygame.init()
+
+# 設置遊戲窗口大小
+WIN_WIDTH, WIN_HEIGHT = 800, 600
+win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
+pygame.display.set_caption("地鐵跑酷")
+
+# 設定顏色
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GOLD = (255, 215, 0)
+BLUE = (0, 0, 255)
+
+# 設定玩家角色屬性
+player_width = 80
+player_height = 96
+player_x = WIN_WIDTH // 2
+player_y = WIN_HEIGHT - player_height - 10
+player_vel = 15  # 將速度增加到15
+max_lives = 2  # 最大生命值
+player_lives = max_lives  # 初始生命值為兩條
+player_flash = False  # 玩家是否在閃爍狀態
+flash_timer = 0  # 閃爍計時器
+flash_duration = 60  # 閃爍持續時間（幀數）
+shield_active = False  # 無敵護盾是否激活
+shield_timer = 0  # 無敵護盾計時器
+shield_duration = 150  # 無敵護盾持續時間（幀數）
+
+# 設定障礙物屬性
+obstacle_width = 80
+obstacle_height = 96
+obstacle_vel = 10
+obstacles = []
+
+# 設定金幣屬性
+coin_width = 40
+coin_height = 40
+coin_vel = 10
+coins = []
+
+# 增加速度的間隔
+speed_increment_interval = 300  # 每300幀增加一次速度
+base_speed_increment = 1
+current_speed_increment = 0
+
+# 增加障礙物和金幣的定時器
+obstacle_timer = 0
+coin_timer = 0
+
+# 遊戲結束標誌
+game_over = False
+
+# 分數和金幣初始化
+score = 0
+coin_count = 0
+
+def generate_rect(obj_width, obj_height, existing_objects, additional_check=None):
+    overlap = True
+    while overlap:
+        x_pos = random.randint(0, WIN_WIDTH - obj_width)
+        y_pos = random.randint(-obj_height, 0)
+        new_rect = pygame.Rect(x_pos, y_pos, obj_width, obj_height)
+        overlap = any(new_rect.colliderect(obj) for obj in existing_objects)
+        if additional_check:
+            overlap = overlap or additional_check(new_rect)
+    return new_rect
+
+def generate_obstacle():
+    obstacles.append(generate_rect(obstacle_width, obstacle_height, obstacles + coins))
+
+def generate_coin():
+    coins.append(generate_rect(coin_width, coin_height, coins + obstacles))
+
+# 設置字體
+font = pygame.font.SysFont("comicsans", 30)
+
+# 遊戲主循環
+run = True
+clock = pygame.time.Clock()
+frame_count = 0
+while run:
+    clock.tick(30)  # 設置遊戲幀數
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            run = False
+
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT] and player_x - player_vel > 0:
+        player_x -= player_vel
+    if keys[pygame.K_RIGHT] and player_x + player_vel + player_width < WIN_WIDTH:
+        player_x += player_vel
+    if keys[pygame.K_UP] and player_y - player_vel > 0:
+        player_y -= player_vel
+    if keys[pygame.K_DOWN] and player_y + player_vel + player_height < WIN_HEIGHT:
+        player_y += player_vel
+
+    # 每過30幀增加一個障礙物
+    obstacle_timer += 1
+    if obstacle_timer == 30:
+        obstacle_timer = 0
+        generate_obstacle()
+
+    # 每過60幀增加一個金幣
+    coin_timer += 1
+    if coin_timer == 60:
+        coin_timer = 0
+        generate_coin()
+
+    # 更新所有障礙物的位置
+    for obstacle in obstacles[:]:
+        obstacle.y += obstacle_vel + current_speed_increment
+        if obstacle.y > WIN_HEIGHT:
+            obstacles.remove(obstacle)
+
+    # 更新所有金幣的位置
+    for coin in coins[:]:
+        coin.y += coin_vel + current_speed_increment
+        if coin.y > WIN_HEIGHT:
+            coins.remove(coin)
+
+    # 碰撞檢測
+    player_rect = pygame.Rect(player_x, player_y, player_width, player_height)
+    if not shield_active:  # 如果無敵護盾未激活
+        for obstacle in obstacles[:]:
+            if player_rect.colliderect(obstacle):
+                if not player_flash:  # 如果玩家不在閃爍狀態中
+                    player_lives -= 1  # 撞到障礙物減少一條生命值
+                    obstacles.remove(obstacle)  # 避免同一障礙物被多次檢測
+                    player_flash = True  # 開始閃爍
+                    flash_timer = flash_duration  # 設置閃爍計時器
+                    if player_lives <= 0:
+                        game_over = True
+                    break
+
+    # 金幣撿取檢測
+    for coin in coins[:]:
+        if player_rect.colliderect(coin):
+            coins.remove(coin)
+            score += 10  # 撿取金幣增加10分
+            coin_count += 1  # 增加金幣數量
+            # 如果金幣數量達到10，恢復一條生命並將金幣數量歸零
+            if coin_count == 10:
+                coin_count = 0
+                if player_lives < max_lives:
+                    player_lives += 1
+
+    # 每幀增加分數
+    if not game_over:
+        score += 1
+        frame_count += 1
+
+        # 增加速度
+        if frame_count % speed_increment_interval == 0:
+            current_speed_increment += base_speed_increment
+            player_vel += base_speed_increment
+
+        # 更新閃爍狀態
+        if player_flash:
+            flash_timer -= 1
+            if flash_timer <= 0:
+                player_flash = False
+
+        # 檢查是否應該啟動無敵護盾
+        if score > 0 and score % 1000 == 0 and not shield_active:
+            shield_active = True
+            shield_timer = shield_duration
+
+        # 更新無敵護盾狀態
+        if shield_active:
+            shield_timer -= 1
+            if shield_timer <= 0:
+                shield_active = False
+
+    # 繪製遊戲畫面
+    win.fill(WHITE)
+
+    # 在閃爍狀態中，角色出現和消失交替
+    if not player_flash or (player_flash and flash_timer % 10 < 5):
+        if shield_active:
+            pygame.draw.rect(win, BLUE, (player_x, player_y, player_width, player_height))  # 無敵狀態顯示為藍色
+        else:
+            pygame.draw.rect(win, BLACK, (player_x, player_y, player_width, player_height))
+
+    for obstacle in obstacles:
+        pygame.draw.rect(win, RED, obstacle)
+
+    for coin in coins:
+        pygame.draw.ellipse(win, GOLD, coin)
+
+    # 顯示分數、金幣數量和生命值
+    if not game_over:
+        score_text = font.render(f"Score: {score}", True, BLACK)
+        coin_text = font.render(f"Coins: {coin_count}", True, BLACK)
+        lives_text = font.render(f"Lives: {player_lives}", True, BLACK)
+        shield_text = font.render(f"Shield: {'Active' if shield_active else 'Inactive'}", True, BLUE if shield_active else BLACK)
+        win.blit(score_text, (10, 10))
+        win.blit(coin_text, (10, 50))
+        win.blit(lives_text, (10, 90))
+        win.blit(shield_text, (10, 130))
+    else:
+        win.fill(RED)
+        game_over_text = font.render("Game Over", True, BLACK)
+        win.blit(game_over_text, (WIN_WIDTH // 2 - game_over_text.get_width() // 2, WIN_HEIGHT // 2 - game_over_text.get_height() // 2))
+        final_score_text = font.render(f"Final Score: {score}", True, BLACK)
+        final_coin_text = font.render(f"Coins Collected: {coin_count}", True, BLACK)
+        final_lives_text = font.render(f"Lives Remaining: {player_lives}", True, BLACK)
+        win.blit(final_score_text, (WIN_WIDTH // 2 - final_score_text.get_width() // 2, WIN_HEIGHT // 2 - final_score_text.get_height() // 2 + 50))
+        win.blit(final_coin_text, (WIN_WIDTH // 2 - final_coin_text.get_width() // 2, WIN_HEIGHT // 2 - final_coin_text.get_HEIGHT() // 2 + 100))
+        win.blit(final_lives_text, (WIN_WIDTH // 2 - final_lives_text.get_WIDTH() // 2, WIN_HEIGHT // 2 - final_lives_text.get_HEIGHT() // 2 + 150))
+
+    pygame.display.update()
+
+pygame.quit()
